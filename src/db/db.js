@@ -19,14 +19,19 @@ db.version(1).stores({
 });
 
 // ─── Seed initial employees on first run ────────────────────────────────────
-db.on('populate', async () => {
-  await db.employees.bulkAdd([
-    { name: 'Dueño',      pin: '0000', role: 'owner',    color: '#7C3AED', active: true },
-    { name: 'Encargado',  pin: '1111', role: 'manager',  color: '#1E40AF', active: true },
-    { name: 'Carlos',     pin: '2222', role: 'employee', color: '#059669', active: true },
-    { name: 'Miguel',     pin: '3333', role: 'employee', color: '#DC2626', active: true },
-    { name: 'Roberto',    pin: '4444', role: 'employee', color: '#D97706', active: true },
-  ]);
+// Use 'ready' + count check so seeding is reliable across all browsers/Dexie versions.
+// active stored as 1/0 (number) so IndexedDB index queries work correctly.
+db.on('ready', async () => {
+  const count = await db.employees.count();
+  if (count === 0) {
+    await db.employees.bulkAdd([
+      { name: 'Dueño',      pin: '0000', role: 'owner',    color: '#7C3AED', active: 1 },
+      { name: 'Encargado',  pin: '1111', role: 'manager',  color: '#1E40AF', active: 1 },
+      { name: 'Carlos',     pin: '2222', role: 'employee', color: '#059669', active: 1 },
+      { name: 'Miguel',     pin: '3333', role: 'employee', color: '#DC2626', active: 1 },
+      { name: 'Roberto',    pin: '4444', role: 'employee', color: '#D97706', active: 1 },
+    ]);
+  }
 });
 
 // ─── Helper: today's date string YYYY-MM-DD ──────────────────────────────────
@@ -91,7 +96,7 @@ export const addIncident = (employeeId, type, notes = '') =>
   });
 
 export const addEmployee = (name, pin, role, color) =>
-  db.employees.add({ name, pin, role, color, active: true });
+  db.employees.add({ name, pin, role, color, active: 1 });
 
 export const updateEmployee = (id, changes) =>
   db.employees.update(id, changes);
