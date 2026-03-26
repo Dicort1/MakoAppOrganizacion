@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { addIncident } from '../db/db';
 import useStore from '../store/useStore';
 import { vibrate } from '../utils/helpers';
+import { syncToSheets, incidentPayload } from '../utils/sheets';
 
 const INCIDENT_TYPES = [
   { id: 'maquina',  icon: '🔧', label: 'Máquina falló',   color: 'var(--red-50)',    border: 'var(--red-200)'    },
@@ -28,6 +29,7 @@ export default function IncidentModal() {
       vibrate([200, 100, 200]);
       setSaved(true);
       showFlash('success', '⚠️ Incidente reportado');
+      syncToSheets(incidentPayload(type, currentUser.name));   // fire & forget
       setTimeout(() => closeIncident(), 1200);
     } catch (e) {
       showFlash('error', 'Error al reportar');

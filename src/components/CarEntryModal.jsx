@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addCar } from '../db/db';
 import useStore from '../store/useStore';
 import { getInitials, playSuccess, vibrate } from '../utils/helpers';
+import { syncToSheets, carRegisteredPayload } from '../utils/sheets';
 
 export default function CarEntryModal() {
   const currentUser  = useStore((s) => s.currentUser);
@@ -33,10 +34,13 @@ export default function CarEntryModal() {
     }
     setSaving(true);
     try {
-      await addCar({ employeeId: selectedEmpId, hasVacuum });
+      const carId = await addCar({ employeeId: selectedEmpId, hasVacuum });
+      const car   = await db.cars.get(carId);
+      const emp   = (employees ?? []).find((e) => e.id === selectedEmpId);
       playSuccess();
       vibrate([100, 50, 100]);
       showFlash('success', hasVacuum ? '🚗 Auto registrado + aspirado' : '🚗 Auto registrado');
+      syncToSheets(carRegisteredPayload(car, emp?.name ?? ''));   // fire & forget
       closeCarEntry();
     } catch (e) {
       showFlash('error', 'Error al registrar');

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, markCarPagado } from '../db/db';
 import useStore from '../store/useStore';
 import { formatTime, getInitials, playSuccess, vibrate } from '../utils/helpers';
+import { syncToSheets, carPaidPayload } from '../utils/sheets';
 
 export default function PaymentModal() {
   const selectedCarId = useStore((s) => s.selectedCarId);
@@ -24,10 +25,12 @@ export default function PaymentModal() {
     setSaving(true);
     try {
       await markCarPagado(selectedCarId, paymentType);
+      const updatedCar = await db.cars.get(selectedCarId);
       playSuccess();
       vibrate([80, 40, 80, 40, 80]);
       const label = paymentType === 'efectivo' ? '💵 Pago en efectivo' : '💳 Pago con tarjeta';
       showFlash('success', `${label} — $120 MXN`);
+      syncToSheets(carPaidPayload(updatedCar, emp?.name ?? ''));   // fire & forget
       closePayment();
     } catch (e) {
       showFlash('error', 'Error al registrar pago');

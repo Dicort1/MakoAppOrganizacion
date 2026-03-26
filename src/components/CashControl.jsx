@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, todayStr, getTodayCashControl, setCashControl } from '../db/db';
 import useStore from '../store/useStore';
 import { formatMXN, computeCashDiscrepancy, formatDate } from '../utils/helpers';
+import { syncToSheets, cashControlPayload } from '../utils/sheets';
 
 // ─── Simple numeric input with numpad ────────────────────────────────────────
 function CashInput({ label, value, onChange, onSave }) {
@@ -89,6 +90,13 @@ export default function CashControl() {
         : { openingCash: opening, closingCash: val };
       await setCashControl(updates);
       showFlash('success', '✅ Guardado');
+      // Sync to sheets when closing cash is set (end of day)
+      if (field === 'closing') {
+        const cashIncome = (cars ?? []).filter((c) => c.paymentType === 'efectivo').length * 120;
+        const expected   = (opening ?? 0) + cashIncome;
+        const diff       = val - expected;
+        syncToSheets(cashControlPayload(todayStr(), opening ?? 0, val, expected, diff));
+      }
     } catch {
       showFlash('error', 'Error al guardar');
     }

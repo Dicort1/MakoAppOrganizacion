@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, addEmployee, updateEmployee } from '../db/db';
 import useStore from '../store/useStore';
 import { getInitials, getRoleLabel } from '../utils/helpers';
+import { getSheetsUrl, setSheetsUrl, syncToSheets } from '../utils/sheets';
 
 const COLORS = ['#7C3AED','#1E40AF','#059669','#DC2626','#D97706','#0891B2','#BE185D','#374151'];
 
@@ -93,6 +94,61 @@ function AddEmployeeForm({ onDone }) {
   );
 }
 
+// ─── Google Sheets Config ─────────────────────────────────────────────────────
+function SheetsConfig() {
+  const showFlash = useStore((s) => s.showFlash);
+  const [url, setUrl]       = useState(getSheetsUrl);
+  const [testing, setTesting] = useState(false);
+
+  const handleSave = () => {
+    setSheetsUrl(url);
+    showFlash('success', '✅ URL guardada');
+  };
+
+  const handleTest = async () => {
+    if (!url) { showFlash('error', 'Ingresa la URL primero'); return; }
+    setTesting(true);
+    setSheetsUrl(url);
+    await syncToSheets({ type: 'test', message: 'Conexión exitosa desde Mako Car Wash ✅', date: new Date().toISOString() });
+    setTesting(false);
+    showFlash('success', '📤 Señal enviada — revisa tu Google Sheet');
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-title">📊 Google Sheets</div>
+
+      <div style={{ fontSize: 13, color: '#64748B', marginBottom: 12, lineHeight: 1.5 }}>
+        Pega aquí la URL de tu Google Apps Script para sincronizar datos automáticamente.
+      </div>
+
+      <div className="section-label">URL del Apps Script</div>
+      <input
+        className="input-field"
+        style={{ textAlign: 'left', fontSize: 13, marginBottom: 10 }}
+        placeholder="https://script.google.com/macros/s/..."
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+      />
+
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn btn-ghost" onClick={handleTest} disabled={testing}>
+          {testing ? '⏳ Enviando...' : '🧪 Probar'}
+        </button>
+        <button className="btn btn-success" onClick={handleSave}>
+          💾 Guardar
+        </button>
+      </div>
+
+      {getSheetsUrl() && (
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--green-600)', fontWeight: 600 }}>
+          ✅ Conectado — los datos se sincronizan automáticamente
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ConfigScreen() {
   const showFlash = useStore((s) => s.showFlash);
   const [adding, setAdding] = useState(false);
@@ -109,6 +165,8 @@ export default function ConfigScreen() {
 
   return (
     <div>
+      <SheetsConfig />
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div className="card-title" style={{ marginBottom: 0 }}>Empleados activos</div>
         <button
