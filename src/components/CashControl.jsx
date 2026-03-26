@@ -2,187 +2,223 @@ import { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, todayStr, getTodayCashControl, setCashControl } from '../db/db';
 import useStore from '../store/useStore';
-import { formatMXN, computeCashDiscrepancy, formatDate } from '../utils/helpers';
+import { formatMXN, formatDate } from '../utils/helpers';
 import { syncToSheets, cashControlPayload } from '../utils/sheets';
 
-// ─── Simple numeric input with numpad ────────────────────────────────────────
-function CashInput({ label, value, onChange, onSave }) {
-  const [local, setLocal] = useState(value != null ? String(value) : '');
-  const [editing, setEditing] = useState(false);
-
+// ─── NumPad compacto ──────────────────────────────────────────────────────────
+function NumPadModal({ label, onConfirm, onCancel }) {
+  const [val, setVal] = useState('');
   const keys = [1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, '⌫'];
 
   const handleKey = (k) => {
-    if (k === '⌫') { setLocal((v) => v.slice(0, -1)); return; }
+    if (k === '⌫') { setVal(v => v.slice(0, -1)); return; }
     if (k === '') return;
-    if (local.length >= 6) return;     // max $999,999
-    setLocal((v) => v + String(k));
-  };
-
-  const handleSave = () => {
-    const num = parseInt(local, 10);
-    if (!isNaN(num)) { onChange(num); onSave(num); }
-    setEditing(false);
+    if (val.length >= 6) return;
+    setVal(v => v + String(k));
   };
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div className="section-label">{label}</div>
-      {!editing ? (
-        <button
-          className="btn btn-outline btn-lg"
-          onClick={() => setEditing(true)}
-          style={{ justifyContent: 'space-between', paddingLeft: 20, paddingRight: 20 }}
-        >
-          <span>{value != null ? formatMXN(value) : 'Toca para ingresar'}</span>
-          <span>✏️</span>
-        </button>
-      ) : (
-        <>
-          <div className="numpad-display">
-            {local ? `$${parseInt(local, 10).toLocaleString('es-MX')}` : '$0'}
-          </div>
-          <div className="numpad">
-            {keys.map((k, i) => (
-              <button
-                key={i}
-                className={`numpad-key ${k === '' ? 'empty' : ''} ${k === '⌫' ? 'delete' : ''}`}
-                onClick={() => handleKey(k)}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-          <div className="row" style={{ gap: 8 }}>
-            <button className="btn btn-ghost" onClick={() => setEditing(false)}>Cancelar</button>
-            <button className="btn btn-success" onClick={handleSave}>Guardar ✓</button>
-          </div>
-        </>
-      )}
+    <div className="modal-overlay">
+      <div className="modal-sheet">
+        <div className="modal-handle" />
+        <div className="modal-title">{label}</div>
+        <div className="numpad-display">
+          {val ? formatMXN(parseInt(val, 10)) : '$0'}
+        </div>
+        <div className="numpad">
+          {keys.map((k, i) => (
+            <button key={i}
+              className={`numpad-key ${k === '' ? 'empty' : ''} ${k === '⌫' ? 'delete' : ''}`}
+              onClick={() => handleKey(k)}>{k}
+            </button>
+          ))}
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
+          <button className="btn btn-success"
+            onClick={() => onConfirm(parseInt(val || '0', 10))}>
+            Confirmar ✓
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ─── CashControl ─────────────────────────────────────────────────────────────
 export default function CashControl() {
-  const showFlash = useStore((s) => s.showFlash);
+  const showFlash   = useStore(s => s.showFlash);
+  const [showPad, setShowPad] = useState(null); // 'opening' | 'closing'
 
   const cashControl = useLiveQuery(() => getTodayCashControl(), []);
-  const cars = useLiveQuery(
+  const cars        = useLiveQuery(
     () => db.cars.where('date').equals(todayStr()).toArray(), []
   );
 
-  const [opening, setOpening] = useState(null);
-  const [closing, setClosing] = useState(null);
+  // Live calculations — update every time a car is paid
+  const cashCars    = (cars ?? []).filter(c => c.paymentType === 'efectivo');
+  const cardCars    = (cars ?? []).filter(c => c.paymentType === 'tarjeta');
+  const cashIncome  = cashCars.length * 120;
+  const cardIncome  = cardCars.length * 120;
+  const opening     = cashControl?.openingCash ?? null;
+  const closing     = cashControl?.closingCash ?? null;
+  const enCajaAhora = (opening ?? 0) + cashIncome;
+  const diff        = closing != null ? closing - enCajaAhora : null;
+  const cuadrada    = diff != null && Math.abs(diff) < 1;
 
-  // Sync with DB values
-  useEffect(() => {
-    if (cashControl) {
-      setOpening(cashControl.openingCash ?? null);
-      setClosing(cashControl.closingCash ?? null);
-    }
-  }, [cashControl?.id]);
-
-  const save = async (field, val) => {
+  const handleOpeningConfirm = async (val) => {
     try {
-      const updates = field === 'opening'
-        ? { openingCash: val, closingCash: closing }
-        : { openingCash: opening, closingCash: val };
-      await setCashControl(updates);
-      showFlash('success', '✅ Guardado');
-      // Sync to sheets when closing cash is set (end of day)
-      if (field === 'closing') {
-        const cashIncome = (cars ?? []).filter((c) => c.paymentType === 'efectivo').length * 120;
-        const expected   = (opening ?? 0) + cashIncome;
-        const diff       = val - expected;
-        syncToSheets(cashControlPayload(todayStr(), opening ?? 0, val, expected, diff));
-      }
-    } catch {
-      showFlash('error', 'Error al guardar');
-    }
+      await setCashControl({ openingCash: val, closingCash: closing });
+      showFlash('success', `✅ Apertura: ${formatMXN(val)}`);
+    } catch { showFlash('error', 'Error al guardar'); }
+    setShowPad(null);
   };
 
-  // Compute stats
-  const cashCars   = (cars ?? []).filter((c) => c.paymentType === 'efectivo');
-  const cashIncome = cashCars.length * 120;
-  const discrepancy = computeCashDiscrepancy(cars ?? [], cashControl);
+  const handleClosingConfirm = async (val) => {
+    try {
+      await setCashControl({ openingCash: opening ?? 0, closingCash: val });
+      const d = val - enCajaAhora;
+      syncToSheets(cashControlPayload(todayStr(), opening ?? 0, val, enCajaAhora, d));
+      showFlash('success', Math.abs(d) < 1 ? '✅ Caja cuadrada' : `⚠️ Diferencia: ${formatMXN(Math.abs(d))}`);
+    } catch { showFlash('error', 'Error al guardar'); }
+    setShowPad(null);
+  };
 
   return (
     <div>
-      <div className="card">
-        <div className="card-title">💵 Control de Caja — {formatDate(todayStr())}</div>
-
-        <CashInput
-          label="Efectivo al abrir caja"
-          value={opening}
-          onChange={setOpening}
-          onSave={(v) => save('opening', v)}
-        />
-
-        <CashInput
-          label="Efectivo al cerrar caja"
-          value={closing}
-          onChange={setClosing}
-          onSave={(v) => save('closing', v)}
-        />
-      </div>
-
-      {/* Summary */}
-      <div className="card">
-        <div className="card-title">Resumen de efectivo</div>
-
-        <div className="cash-row">
-          <div className="cash-row-label">💰 Apertura</div>
-          <div className="cash-row-value">{opening != null ? formatMXN(opening) : '—'}</div>
+      {/* ── Dinero en caja AHORA (se actualiza solo) ── */}
+      <div style={{
+        background: 'linear-gradient(135deg, #1D4ED8, #7C3AED)',
+        borderRadius: 'var(--radius-xl)', padding: '22px 20px',
+        marginBottom: 12, color: '#fff', boxShadow: 'var(--shadow-lg)'
+      }}>
+        <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          💵 Efectivo en caja ahora
         </div>
-
-        <div className="cash-row">
-          <div className="cash-row-label">🚗 Cobros en efectivo ({cashCars.length} autos)</div>
-          <div className="cash-row-value">{formatMXN(cashIncome)}</div>
+        <div style={{ fontSize: 48, fontWeight: 800, letterSpacing: '-1px', lineHeight: 1 }}>
+          {formatMXN(enCajaAhora)}
         </div>
-
-        <div className="cash-row" style={{ borderTop: '2px solid var(--gray-200)', marginTop: 4, paddingTop: 16 }}>
-          <div className="cash-row-label" style={{ fontWeight: 700 }}>📊 Esperado en caja</div>
-          <div className="cash-row-value" style={{ fontSize: 20 }}>
-            {formatMXN((opening ?? 0) + cashIncome)}
+        <div style={{ display: 'flex', gap: 16, marginTop: 14, paddingTop: 14,
+          borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>
+              {formatMXN(opening ?? 0)}
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>Apertura</div>
+          </div>
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>
+              {formatMXN(cashIncome)}
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+              + Cobros ({cashCars.length} autos)
+            </div>
           </div>
         </div>
+      </div>
 
-        <div className="cash-row">
-          <div className="cash-row-label">🔒 Cierre registrado</div>
-          <div className="cash-row-value">{closing != null ? formatMXN(closing) : '—'}</div>
+      {/* ── Tarjeta (info, no va a caja física) ── */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--blue-700)' }}>
+              💳 Cobros con tarjeta
+            </div>
+            <div style={{ fontSize: 13, color: '#64748B', marginTop: 2 }}>
+              {cardCars.length} autos — va a terminal, no a caja
+            </div>
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--blue-700)' }}>
+            {formatMXN(cardIncome)}
+          </div>
         </div>
       </div>
 
-      {/* Discrepancy Result */}
-      {discrepancy !== null && (
-        discrepancy.ok ? (
+      {/* ── Acciones del día ── */}
+      <div className="card-title" style={{ marginBottom: 8 }}>
+        {formatDate(todayStr())}
+      </div>
+
+      {/* Apertura */}
+      <button
+        className="btn btn-lg"
+        onClick={() => setShowPad('opening')}
+        style={{
+          background: opening != null ? 'var(--gray-100)' : 'linear-gradient(145deg,#1D4ED8,#1E40AF)',
+          color: opening != null ? 'var(--gray-700)' : '#fff',
+          border: opening != null ? '2px solid var(--gray-200)' : 'none',
+          justifyContent: 'space-between', paddingLeft: 20, paddingRight: 20,
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ textAlign: 'left' }}>
+          <div style={{ fontSize: 13, opacity: 0.75 }}>Efectivo al abrir caja</div>
+          <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }}>
+            {opening != null ? formatMXN(opening) : 'Toca para registrar'}
+          </div>
+        </div>
+        <span style={{ fontSize: 24 }}>{opening != null ? '✏️' : '➕'}</span>
+      </button>
+
+      {/* Cierre */}
+      <button
+        className="btn btn-lg"
+        onClick={() => setShowPad('closing')}
+        style={{
+          background: closing != null ? 'var(--gray-100)' : 'linear-gradient(145deg,#15803D,#16A34A)',
+          color: closing != null ? 'var(--gray-700)' : '#fff',
+          border: closing != null ? '2px solid var(--gray-200)' : 'none',
+          justifyContent: 'space-between', paddingLeft: 20, paddingRight: 20,
+          marginBottom: 12,
+        }}
+      >
+        <div style={{ textAlign: 'left' }}>
+          <div style={{ fontSize: 13, opacity: 0.75 }}>Efectivo al cerrar caja</div>
+          <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }}>
+            {closing != null ? formatMXN(closing) : 'Registrar al terminar el día'}
+          </div>
+        </div>
+        <span style={{ fontSize: 24 }}>{closing != null ? '✏️' : '🔒'}</span>
+      </button>
+
+      {/* ── Resultado del cierre ── */}
+      {diff !== null && (
+        cuadrada ? (
           <div className="discrepancy-ok">
-            <div className="discrepancy-title" style={{ color: 'var(--green-700)' }}>
+            <div className="discrepancy-title" style={{ color: 'var(--green-700)', fontSize: 22 }}>
               ✅ Caja cuadrada
             </div>
-            <div className="discrepancy-sub">Sin diferencias detectadas</div>
+            <div className="discrepancy-sub">Sin diferencias — todo en orden</div>
           </div>
         ) : (
           <div className="discrepancy-alert">
-            <div className="discrepancy-title" style={{ color: 'var(--red-700)' }}>
-              🔴 DESCUADRE: {formatMXN(Math.abs(discrepancy.diff))}
+            <div className="discrepancy-title" style={{ color: 'var(--red-700)', fontSize: 22 }}>
+              🔴 {diff < 0 ? 'FALTANTE' : 'SOBRANTE'}: {formatMXN(Math.abs(diff))}
             </div>
-            <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4,
-              color: discrepancy.diff < 0 ? 'var(--red-700)' : 'var(--orange-600)' }}>
-              {discrepancy.diff < 0 ? '⬇️ FALTANTE' : '⬆️ SOBRANTE'}
+            <div style={{ fontSize: 14, color: 'var(--red-700)', marginTop: 6, fontWeight: 600 }}>
+              Esperado: {formatMXN(enCajaAhora)} · Contado: {formatMXN(closing)}
             </div>
-            <div className="discrepancy-sub">
-              Esperado: {formatMXN(discrepancy.expected)} · Registrado: {formatMXN(discrepancy.actual)}
+            <div className="discrepancy-sub" style={{ marginTop: 4 }}>
+              Diferencia de {formatMXN(Math.abs(diff))}
             </div>
           </div>
         )
       )}
 
-      {discrepancy === null && closing == null && (
-        <div style={{ textAlign: 'center', padding: '16px', fontSize: 14, color: '#94A3B8' }}>
-          Ingresa el cierre de caja para ver si hay diferencias
-        </div>
+      {/* NumPad modal */}
+      {showPad === 'opening' && (
+        <NumPadModal
+          label="💵 ¿Cuánto efectivo hay al abrir?"
+          onConfirm={handleOpeningConfirm}
+          onCancel={() => setShowPad(null)}
+        />
+      )}
+      {showPad === 'closing' && (
+        <NumPadModal
+          label="🔒 ¿Cuánto efectivo hay al cerrar?"
+          onConfirm={handleClosingConfirm}
+          onCancel={() => setShowPad(null)}
+        />
       )}
     </div>
   );

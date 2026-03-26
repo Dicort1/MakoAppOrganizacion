@@ -1,7 +1,7 @@
 import Dexie from 'dexie';
 
 // ─── Database Definition ────────────────────────────────────────────────────
-export const db = new Dexie('MakoCarWashDB_v2');
+export const db = new Dexie('MakoCarWashDB_v3');
 
 db.version(1).stores({
   // employees: role = 'owner' | 'manager' | 'employee'
