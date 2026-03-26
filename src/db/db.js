@@ -51,23 +51,24 @@ export const getAllEmployees = () =>
   db.employees.where('active').equals(1).toArray();
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
-export const addCar = async ({ employeeId, hasVacuum }) => {
+export const addCar = async ({ employeeId, hasVacuum, paymentType }) => {
   const today = todayStr();
   const count = await db.cars.where('date').equals(today).count();
   const seq   = String(count + 1).padStart(4, '0');
-  const dateShort = today.replace(/-/g, '').slice(2); // YYMMDD
+  const dateShort = today.replace(/-/g, '').slice(2);
   const ticketId  = `MK-${dateShort}-${seq}`;
 
   return db.cars.add({
     ticketId,
     employeeId,
-    date:      today,
-    timestamp: Date.now(),
-    status:    'activo',
-    hasVacuum: hasVacuum ? 1 : 0,
-    paid:      0,
-    paymentType: null,
-    amount:    120,
+    date:        today,
+    timestamp:   Date.now(),
+    status:      paymentType ? 'pagado' : 'activo',
+    hasVacuum:   hasVacuum ? 1 : 0,
+    paid:        paymentType ? 1 : 0,
+    paymentType: paymentType ?? null,
+    paidAt:      paymentType ? Date.now() : null,
+    amount:      120,
   });
 };
 
