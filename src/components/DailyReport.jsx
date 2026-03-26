@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, todayStr, getTodayCashControl, getTodayIncidents } from '../db/db';
 import useStore from '../store/useStore';
@@ -5,6 +6,7 @@ import {
   computeStats, computeCashDiscrepancy, buildReportText,
   shareReport, formatMXN, formatDate, formatDateTime
 } from '../utils/helpers';
+import { syncToSheets, buildFullReport, hasSheetsUrl } from '../utils/sheets';
 
 const INCIDENT_LABELS = {
   maquina: '🔧 Máquina falló',
@@ -14,7 +16,8 @@ const INCIDENT_LABELS = {
 };
 
 export default function DailyReport() {
-  const showFlash = useStore((s) => s.showFlash);
+  const showFlash  = useStore((s) => s.showFlash);
+  const [sending, setSending] = useState(false);
 
   const cars      = useLiveQuery(() => db.cars.where('date').equals(todayStr()).toArray(), []);
   const employees = useLiveQuery(() => db.employees.toArray(), []);
@@ -29,9 +32,21 @@ export default function DailyReport() {
   const handleShare = async () => {
     const text   = buildReportText(stats, cashCtrl, incidents, todayStr());
     const result = await shareReport(text);
-    if (result === true)    showFlash('success', '✅ Compartido');
+    if (result === true)          showFlash('success', '✅ Compartido');
     else if (result === 'copied') showFlash('success', '📋 Copiado al portapapeles');
-    else                     showFlash('error', 'No se pudo compartir');
+    else                          showFlash('error', 'No se pudo compartir');
+  };
+
+  const handleSendToSheets = async () => {
+    if (!hasSheetsUrl()) {
+      showFlash('error', 'Configura Google Sheets primero en ⚙️ Config');
+      return;
+    }
+    setSending(true);
+    const payload = buildFullReport(cars, employees, cashCtrl, incidents, todayStr());
+    const ok      = await syncToSheets(payload);
+    setSending(false);
+    showFlash('success', ok ? '📊 Reporte completo enviado a Google Sheets ✅' : '⚠️ Enviado (verifica tu Sheet)');
   };
 
   return (
@@ -56,6 +71,25 @@ export default function DailyReport() {
           </button>
         </div>
       </div>
+
+      {/* Google Sheets button */}
+      <button
+        className="btn btn-lg"
+        onClick={handleSendToSheets}
+        disabled={sending}
+        style={{
+          background: sending ? '#94A3B8' : 'linear-gradient(135deg, #16A34A, #15803D)',
+          color: '#fff',
+          marginBottom: 10,
+          boxShadow: '0 4px 14px rgba(22,163,74,0.35)',
+          fontSize: 17,
+          fontWeight: 800,
+          gap: 10,
+        }}
+      >
+        <span style={{ fontSize: 24 }}>📊</span>
+        {sending ? 'Enviando todo...' : 'ENVIAR TODO A GOOGLE SHEETS'}
+      </button>
 
       {/* Cars section */}
       <div className="report-section">
