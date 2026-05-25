@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, todayStr, addCar } from '../db/db';
+import { db, todayStr, addCar, getTodayCashControl } from '../db/db';
 import useStore from '../store/useStore';
 import { formatMXN, formatTime, formatDate, playSuccess, vibrate } from '../utils/helpers';
-import { syncToSheets, carRegisteredPayload } from '../utils/sheets';
+import { syncToSheets, carRegisteredPayload, buildFullReport, hasSheetsUrl } from '../utils/sheets';
 
 // ─── Car registration modal ───────────────────────────────────────────────────
 function RegistroModal({ onClose }) {
@@ -156,11 +156,21 @@ function CarCard({ car }) {
 // ─── EncargadoScreen ──────────────────────────────────────────────────────────
 export default function EncargadoScreen() {
   const logout    = useStore((s) => s.logout);
+  const showFlash = useStore((s) => s.showFlash);
   const [showModal, setShowModal] = useState(false);
+  const [sending,   setSending]   = useState(false);
 
-  const cars = useLiveQuery(
-    () => db.cars.where('date').equals(todayStr()).toArray(), []
-  );
+  const cars        = useLiveQuery(() => db.cars.where('date').equals(todayStr()).toArray(), []);
+  const cashControl = useLiveQuery(() => getTodayCashControl(), []);
+
+  const handleSendSheets = async () => {
+    if (!hasSheetsUrl()) { showFlash('error', 'El dueño aún no configuró Google Sheets'); return; }
+    setSending(true);
+    const payload = buildFullReport(cars ?? [], [], cashControl, [], todayStr());
+    const ok      = await syncToSheets(payload);
+    setSending(false);
+    showFlash(ok ? 'success' : 'error', ok ? '📊 Reporte enviado a Google Sheets ✅' : '⚠️ Revisa la conexión');
+  };
 
   const sorted    = [...(cars ?? [])].sort((a, b) => b.timestamp - a.timestamp);
   const efectivo  = sorted.filter((c) => c.paymentType === 'efectivo').length;
@@ -238,6 +248,25 @@ export default function EncargadoScreen() {
             </div>
             {sorted.map((car) => <CarCard key={car.id} car={car} />)}
           </>
+        )}
+      </div>
+
+        {/* Sheets button */}
+        {total > 0 && (
+          <button
+            onClick={handleSendSheets}
+            disabled={sending}
+            style={{
+              width: '100%', height: 54, borderRadius: 12, border: 'none', cursor: 'pointer',
+              background: sending ? '#94A3B8' : 'linear-gradient(145deg,#16A34A,#15803D)',
+              color: '#fff', fontSize: 16, fontWeight: 800,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              marginTop: 12, boxShadow: '0 4px 12px rgba(22,163,74,0.3)',
+            }}
+          >
+            <span style={{ fontSize: 20 }}>📊</span>
+            {sending ? 'Enviando...' : 'ENVIAR REPORTE AL DUEÑO'}
+          </button>
         )}
       </div>
 
