@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, todayStr, getTodayCashControl, setCashControl } from '../db/db';
+import { db, todayStr, getTodayCashControl, setCashControl, addExtra } from '../db/db';
 import useStore from '../store/useStore';
 import { formatMXN, formatTime, formatDate } from '../utils/helpers';
 import { syncToSheets, buildFullReport, hasSheetsUrl, getSheetsUrl, setSheetsUrl } from '../utils/sheets';
 
-const NAVY  = '#0A2540';
-const GREEN = '#059669';
-const BLUE  = '#1255CC';
-const BG    = '#F5F7FA';
+const NAVY   = '#0A2540';
+const GREEN  = '#059669';
+const BLUE   = '#1255CC';
+const ORANGE = '#D97706';
+const BG     = '#F5F7FA';
 
 // ─── NumPad modal ─────────────────────────────────────────────────────────────
 function NumPadModal({ label, onConfirm, onCancel }) {
@@ -105,6 +106,7 @@ export default function DuenoScreen() {
 
   const cars        = useLiveQuery(() => db.cars.where('date').equals(todayStr()).toArray(), []);
   const cashControl = useLiveQuery(() => getTodayCashControl(), []);
+  const extras      = useLiveQuery(() => db.extras.where('date').equals(todayStr()).toArray(), []);
 
   const sorted        = [...(cars ?? [])].sort((a, b) => b.timestamp - a.timestamp);
   const efectivoCars  = sorted.filter((c) => c.paymentType === 'efectivo');
@@ -112,6 +114,11 @@ export default function DuenoScreen() {
   const totalEfectivo = efectivoCars.length * 120;
   const totalTarjeta  = tarjetaCars.length * 120;
   const totalRevenue  = totalEfectivo + totalTarjeta;
+
+  const chedrauiCount = (extras ?? []).filter((e) => e.type === 'chedraui').length;
+  const traposList    = (extras ?? []).filter((e) => e.type === 'trapo');
+  const traposQty     = traposList.reduce((s, e) => s + (e.quantity ?? 1), 0);
+  const traposTotal   = traposList.reduce((s, e) => s + (e.amount ?? 0), 0);
 
   const opening  = cashControl?.openingCash ?? null;
   const closing  = cashControl?.closingCash ?? null;
@@ -203,6 +210,20 @@ export default function DuenoScreen() {
             </div>
           </>
         )}
+
+        {/* Chedraui + Trapos */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 3px rgba(10,37,64,0.06)', borderLeft: `3px solid ${BLUE}` }}>
+            {sectionLabel('Chedraui hoy')}
+            <div style={{ fontSize: 36, fontWeight: 900, color: NAVY }}>{chedrauiCount}</div>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>autos registrados</div>
+          </div>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 3px rgba(10,37,64,0.06)', borderLeft: `3px solid ${ORANGE}` }}>
+            {sectionLabel('Trapos hoy')}
+            <div style={{ fontSize: 36, fontWeight: 900, color: NAVY }}>{traposQty}</div>
+            <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>vendidos · {formatMXN(traposTotal)}</div>
+          </div>
+        </div>
 
         {/* Car list */}
         {card(

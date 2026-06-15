@@ -8,6 +8,14 @@ db.version(1).stores({
   cashControl: '++id, date',
 });
 
+db.version(2).stores({
+  users:       '++id, pin, role',
+  cars:        '++id, ticketId, date, timestamp, paymentType, hasVacuum, amount',
+  cashControl: '++id, date',
+  extras:      '++id, date, timestamp, type',
+});
+
+
 export const seedIfEmpty = async () => {
   await db.open();
   const count = await db.users.count();
@@ -56,3 +64,10 @@ export const setCashControl = async ({ openingCash, closingCash }) => {
 
 export const updateUser = (id, changes) =>
   db.users.update(id, changes);
+
+// ─── Extras (Chedraui + Trapos) ──────────────────────────────────────────────
+export const addExtra = (type, quantity, amount) =>
+  db.extras.add({ date: todayStr(), timestamp: Date.now(), type, quantity, amount });
+
+export const getTodayExtras = () =>
+  db.extras.where('date').equals(todayStr()).toArray();
